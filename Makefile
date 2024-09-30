@@ -1,10 +1,11 @@
+HOST_CC := cc
 CC := arm-none-eabi-gcc
 
 CFLAGS := -O0 -g -mcpu=cortex-m0 -mthumb -Ibase -nostdlib
-LDFLAGS := -T link.ld -nostdlib
+LDFLAGS := -nostdlib
 
-SRC := main.c boot.c
-OBJ := $(SRC:.c=.o)
+SRC := main.c
+OBJ := $(SRC:.c=.o) boot2.o
 EXE := firmware.elf
 
 $(EXE): $(OBJ)
@@ -12,6 +13,13 @@ $(EXE): $(OBJ)
 
 %.o: %.c
 	$(CC) $< -c -o $@ $(CFLAGS)
+
+boot2.o: boot2_generic_03h.S tools/pad_checksum
+	$(CC) $< -c -o $@ $(CFLAGS) -DCS=0
+	$(CC) $< -c -o $@ $(CFLAGS) -DCS=$(shell tools/pad_checksum $@)
+
+tools/pad_checksum: tools/pad_checksum.c
+	$(HOST_CC) -o $@ $<
 
 .PHONY: build all clean flash
 
