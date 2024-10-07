@@ -16,4 +16,5 @@ endif()
 
 pico_add_extra_outputs(esc_sproj3)
 
-
+pico_enable_stdio_usb(esc_sproj3 0)
+pico_enable_stdio_uart(esc_sproj3 1)
