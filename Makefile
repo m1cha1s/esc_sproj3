@@ -1,34 +1,13 @@
-HOST_CC := cc
-CC := arm-none-eabi-gcc
+.PHONY: submodules configure build flash
 
-CFLAGS := -O0 -g -mcpu=cortex-m0 -mthumb -Ibase -nostdlib
-LDFLAGS := -nostdlib
+submodules:
+	git submodule update --init --recursive
 
-SRC := main.c
-OBJ := $(SRC:.c=.o) boot2.o
-EXE := firmware.elf
+configure: submodules
+	cmake -B build -S src .
 
-$(EXE): $(OBJ)
-	$(CC) $^ -o $@ $(LDFLAGS)
+build: configure
+	cmake --build build
 
-%.o: %.c
-	$(CC) $< -c -o $@ $(CFLAGS)
-
-boot2.o: boot2_generic_03h.S tools/pad_checksum
-	$(CC) $< -c -o $@ $(CFLAGS) -DCS=0
-	$(CC) $< -c -o $@ $(CFLAGS) -DCS=$(shell tools/pad_checksum $@)
-
-tools/pad_checksum: tools/pad_checksum.c
-	$(HOST_CC) -o $@ $<
-
-.PHONY: build all clean flash
-
-build: $(EXE)
-
-all: $(EXE)
-
-clean:
-	rm -f $(OBJ) $(EXE)
-
-flash: $(EXE)
-	openocd -f interface/stlink.cfg -f target/rp2040.cfg -c "program firmware.elf verify reset exit"
+flash: build
+	openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" -c "program build/esc_sproj3.elf verify reset exit"
