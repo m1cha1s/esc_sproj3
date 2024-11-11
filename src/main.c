@@ -37,6 +37,9 @@ bool callback(struct repeating_timer *t);
 repeating_timer_t timer = {0};
 int pos = 0;
 
+int time = 1000;
+volatile bool trig = false;
+
 uint8_t adcVal = 0;
 
 int main()
@@ -46,12 +49,47 @@ int main()
     //pico_led_init();
     init_pwm();
     initADC();
-    add_repeating_timer_us(-1, callback, &pos, &timer);
+    add_repeating_timer_us(-time, callback, &pos, &timer);
 
     while (true) {
-        sleep_ms(100);
-        printf("%d\n", adcVal);
+        static int upCheckNext = 0;
+        static int upCheckNextId = 0;
+        static int adcInfliction[6] = {0};
+
+        int p0 = trapezoid(pos + (0<<PWM_PERIOD_PO2))-256;
+        int p1 = trapezoid(pos + (2<<PWM_PERIOD_PO2))-256;
+        int p2 = trapezoid(pos + (4<<PWM_PERIOD_PO2))-256;
+
+        pwm_set_gpio_level(P0_PIN, p0 >= 90 ? p0 : 0);
+        pwm_set_gpio_level(P1_PIN, p1 >= 90 ? p1 : 0);
+        pwm_set_gpio_level(P2_PIN, p2 >= 90 ? p2 : 0);
+
+        pwm_set_gpio_level(PN0_PIN, p0 < -90 ? -p0 : 0);
+        pwm_set_gpio_level(PN1_PIN, p1 < -90 ? -p1 : 0);
+        pwm_set_gpio_level(PN2_PIN, p2 < -90 ? -p2 : 0);
+
+        pos++;
+        if (pos >= (6<<PWM_PERIOD_PO2)) pos=0;
+
+        if (pos == upCheckNext)
+        {
+            adcInfliction[upCheckNextId] = adc_read();
+
+            upCheckNext += (1<<PWM_PERIOD_PO2);
+            upCheckNextId++;
+
+            if (upCheckNext == (6<<PWM_PERIOD_PO2))
+            {
+                upCheckNext = 0;
+                upCheckNextId = 0;
+
+                time-=1;
+                if (time < 10) time = 1000;
+            }
+        }
+        timer.delay_us=-Max((time),1);
     }
+    while (!trig);
 }
 
 int trapezoid( int val )
@@ -165,49 +203,9 @@ void initADC(void)
     // adc_run(true);
 }
 
-int time = 1280;
-
 
 bool callback(struct repeating_timer *t)
 {
-    static int upCheckNext = 0;
-    static int upCheckNextId = 0;
-    static int adcInfliction[6] = {0};
-
-    int *pos = (int*)t->user_data;
-
-    int p0 = trapezoid((*pos) + (0<<PWM_PERIOD_PO2))-256;
-    int p1 = trapezoid((*pos) + (2<<PWM_PERIOD_PO2))-256;
-    int p2 = trapezoid((*pos) + (4<<PWM_PERIOD_PO2))-256;
-
-    pwm_set_gpio_level(P0_PIN, p0 >= 80 ? p0 : 0);
-    pwm_set_gpio_level(P1_PIN, p1 >= 80 ? p1 : 0);
-    pwm_set_gpio_level(P2_PIN, p2 >= 80 ? p2 : 0);
-
-    pwm_set_gpio_level(PN0_PIN, p0 < -80 ? -p0 : 0);
-    pwm_set_gpio_level(PN1_PIN, p1 < -80 ? -p1 : 0);
-    pwm_set_gpio_level(PN2_PIN, p2 < -80 ? -p2 : 0);
-
-    (*pos)++;
-    if ((*pos) >= (6<<PWM_PERIOD_PO2)) (*pos)=0;
-
-    if ((*pos) == upCheckNext)
-    {
-        adcInfliction[upCheckNextId] = adc_read();
-
-        upCheckNext += (1<<PWM_PERIOD_PO2);
-        upCheckNextId++;
-
-        if (upCheckNext == (6<<PWM_PERIOD_PO2))
-        {
-            upCheckNext = 0;
-            upCheckNextId = 0;
-
-            time-=128;
-            if (time < 10) time = 1280;
-        }
-    }
-    timer.delay_us=-Max((time>>8),1);
-    // add_repeating_timer_us(-time, callback, &pos, &timer);
+    trig=true;
     return true;
 }
