@@ -8,7 +8,7 @@ pico_sdk_init()
 
 add_executable(esc_sproj3 src/main.c)
 
-target_link_libraries(esc_sproj3 PRIVATE pico_stdlib hardware_pwm hardware_adc hardware_dma)
+target_link_libraries(esc_sproj3 PRIVATE pico_stdlib pico_multicore hardware_pwm hardware_adc hardware_dma)
 
 if (PICO_CYW43_SUPPORTED)
     target_link_libraries(esc_sproj3 pico_cyw43_arch_none)
