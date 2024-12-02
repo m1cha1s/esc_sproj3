@@ -47,12 +47,16 @@ volatile u64 spinDurationRawGated = 0;
 volatile u64 spinDurationAvrg = 0;
 
 volatile u64 stepDuration = 1000;
+
 volatile u64 nextStepTime = 0;
+u64 pulseStartTime = 0;
+u64 pulseStopTime = 0;
 
 volatile s32 step = 0;
 
-volatile  u8 driveLevel = 0;
 volatile f32 freq = 0;
+
+f32 driveLevel = 1.f;
 
 volatile bool spinup = true;
 
@@ -71,52 +75,66 @@ void main()
     pico_set_led(false);
 
     spinUp();
-    driveLevel = 128;
+    driveLevel = 0.3f;
 
     pico_set_led(true);
 
     while (true)
     {
-        if (time_us_64() > nextStepTime)
+        u64 now = time_us_64();
+
+        if (now > nextStepTime)
         {
-            nextStepTime = time_us_64() + stepDuration;
+            nextStepTime = now + stepDuration;
             step++;
             step %= 6;
 
-            pwm_set_gpio_level(P0_PIN, p[(step)%6]   ? driveLevel : 0);
-            pwm_set_gpio_level(P1_PIN, p[(step+2)%6] ? driveLevel : 0);
-            pwm_set_gpio_level(P2_PIN, p[(step+4)%6] ? driveLevel : 0);
+            f32 halfStep = 0.5f*(f32)stepDuration;
 
-            gpio_put(PN0_PIN, n[(step)%6]);
-            gpio_put(PN1_PIN, n[(step+2)%6]);
-            gpio_put(PN2_PIN, n[(step+4)%6]);
+            pulseStartTime = now+((1.f-driveLevel)*halfStep);
+            pulseStopTime  = now+((1.f+driveLevel)*halfStep);
         }
+
+        gpio_put(P0_PIN,   p[(step)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(P1_PIN, p[(step+2)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(P2_PIN, p[(step+4)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+
+        gpio_put(PN0_PIN,   n[(step)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(PN1_PIN, n[(step+2)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(PN2_PIN, n[(step+4)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
     }
 }
 
 void spinUp()
 {
     stepDuration = 4000;
-    driveLevel = PWM_MAX;
+    driveLevel = 1.f;
     spinup = true;
 
     while(stepDuration > 1000)
     {
-        if (time_us_64() > nextStepTime)
+        u64 now = time_us_64();
+
+        if (now > nextStepTime)
         {
             stepDuration -= 5;
-            nextStepTime = time_us_64() + stepDuration;
+            nextStepTime = now + stepDuration;
             step++;
-            // step %= 6;
+            step %= 6;
 
-            pwm_set_gpio_level(P0_PIN, p[(step)%6]   ? driveLevel : 0);
-            pwm_set_gpio_level(P1_PIN, p[(step+2)%6] ? driveLevel : 0);
-            pwm_set_gpio_level(P2_PIN, p[(step+4)%6] ? driveLevel : 0);
+            f32 halfStep = 0.5f*(f32)stepDuration;
 
-            gpio_put(PN0_PIN, n[(step)%6]);
-            gpio_put(PN1_PIN, n[(step+2)%6]);
-            gpio_put(PN2_PIN, n[(step+4)%6]);
+            pulseStartTime = now+(u64)((1.f-driveLevel)*halfStep);
+            pulseStopTime = now+(u64)((1.f+driveLevel)*halfStep);
         }
+
+        gpio_put(P0_PIN,   p[(step)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(P1_PIN, p[(step+2)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(P2_PIN, p[(step+4)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+
+        gpio_put(PN0_PIN,   n[(step)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(PN1_PIN, n[(step+2)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
+        gpio_put(PN2_PIN, n[(step+4)%6] && (now >= pulseStartTime) && (now <= pulseStopTime));
     }
 
     spinup = false;
@@ -128,7 +146,14 @@ void logging()
 
     while (true)
     {
-        printf("%llu, %llu, %llu, %llu\n", (spinDurationAvrg>>IIR_AMOUNT), spinDurationRaw, spinDurationRawGated, stepDuration);
+        printf("%llu, %llu, %llu, %llu | %llu, %llu, %llu\n",
+            (spinDurationAvrg>>IIR_AMOUNT),
+            spinDurationRaw,
+            spinDurationRawGated,
+            stepDuration,
+            pulseStartTime,
+            pulseStopTime,
+            pulseStopTime-pulseStartTime);
     }
 }
 
@@ -165,26 +190,27 @@ void senseCb(uint gpio, u32 events)
         stepDuration += 10;
     else
         stepDuration -= 10;
+    stepDuration = Max(stepDuration, 100);
     step = 0;
 }
 
 void InitPins(void)
 {
-    for (int i = 3; i < 6; ++i)
+    for (int i = 0; i < 6; ++i)
     {
         gpio_init(pins[i]);
         gpio_set_dir(pins[i], GPIO_OUT);
     }
 
-    for (int i = 0; i < 3; ++i)
-    {
-        gpio_set_function(pins[i], GPIO_FUNC_PWM);
-        u32 sliceNum = pwm_gpio_to_slice_num(pins[i]);
-        pwm_set_clkdiv(sliceNum, 50);
-        pwm_set_wrap(sliceNum, PWM_MAX);
-        pwm_set_gpio_level(pins[i], 0);
-        pwm_set_enabled(sliceNum, true);
-    }
+    // for (int i = 0; i < 3; ++i)
+    // {
+    //     gpio_set_function(pins[i], GPIO_FUNC_PWM);
+    //     u32 sliceNum = pwm_gpio_to_slice_num(pins[i]);
+    //     pwm_set_clkdiv(sliceNum, 50);
+    //     pwm_set_wrap(sliceNum, PWM_MAX);
+    //     pwm_set_gpio_level(pins[i], 0);
+    //     pwm_set_enabled(sliceNum, true);
+    // }
 
     gpio_init(SENSE_PIN);
     gpio_set_dir(SENSE_PIN, GPIO_IN);
